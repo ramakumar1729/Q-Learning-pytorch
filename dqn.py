@@ -1,5 +1,6 @@
 from __future__ import print_function
 import gym
+import numpy as np
 
 import torch
 import torch.nn as nn
@@ -12,6 +13,8 @@ from torch.autograd import Variable
 from preprocessors import AtariPreprocessor
 from core import ReplayMemory
 import policy
+
+from replay import ReplayMemory
 
 """Main DQN agent."""
 
@@ -80,7 +83,8 @@ class DQNAgent:
          self.nA                   =        nA
 
 
-    def compile(self, optimizer, loss_func):
+    #def compile(self, optimizer, loss_func):
+    def compile(self):
         """Setup all of the TF graph variables/ops.
 
         This is inspired by the compile method on the
@@ -101,7 +105,7 @@ class DQNAgent:
         target = self.q_network(self.history_length, self.nA)
         target.load_state_dict(Q.state_dict())
 
-        return
+        return Q, target
 
 
     def select_action(self, state, **kwargs):
@@ -144,6 +148,9 @@ class DQNAgent:
         """
         pass
 
+    def _convert_np_to_torch_variable(self, x, dtype):
+        return Variable(torch.from_numpy(x).type(dtype))
+
     def fit(self, env, num_iterations, max_episode_length=None):
         """Fit your model to the provided environment.
 
@@ -169,6 +176,66 @@ class DQNAgent:
           How long a single episode should last before the agent
           resets. Can help exploration.
         """
+        last_obs = env.reset()
+        idx = 0
+
+        Q, target = self.compile()
+        optimizer = torch.optim.SGD(Q.parameters(), lr=1e-4, momentum=0.9)
+        criterion = torch.nn.SmoothL1Loss()
+
+        num_train_updates = 0
+        replay_buffer = self.memory
+
+        while idx < num_iterations:
+            idx += 1
+            # encoded observations of last_obs: enc_obs
+            # TODO epsilon greedy
+            if idx > self.num_burn_in:
+                obs = torch.from_numpy(self.q_network).type(dtype)
+                action = Q(Variable(obs, volatile=True)).data.max(1)[1]
+            else:
+                action = torch.IntTensor([np.random.randint(0, self.nA)])
+
+            # take a step
+            obs, reward, is_terminal, _ = env.step(action)
+
+            # store info in replay buffer
+            replay_buffer.append(last_obs, action, reward, (obs, reward, is_terminal, _))
+
+            if is_terminal:
+                obs = env.reset()
+            last_obs = obs
+
+            ### Train network, only if the experience buffer is already populated
+            #  otherwise populate the buffer
+            if idx > self.num_burn_in and idx % self.train_freq == 0:
+                obs_batch, action_batch, reward_batch, next_obs_batch, done_batch = \
+                    replay_buffer.sample(self.batch_size)
+
+                # convert np Tensors to torch variables
+                obs_batch = self._convert_np_to_torch_variable(obs_batch, dtype)
+                reward_batch = self._convert_np_to_torch_variable(reward_batch, dtype)
+                next_obs_batch = self._convert_np_to_torch_variable(next_obs_batch, dtype)
+                not_done_batch = self._convert_np_to_torch_variable(1-done_batch, dtype)
+
+                current_Q_values = Q(obs_batch).gather(1, action_batch.unsqueeze(1))
+
+                # compute best target network value for next state , over all actions
+                max_Q_target = target(next_obs_batch).detach().max(1)[0]
+                target_Q_values = reward_batch + self.gamma *(not_done_batch * max_Q_target)
+
+                # compute loss using Q and target networks
+                loss = criterion(current_Q_values, target_Q_values)
+
+                loss.backward()
+                optimizer.step()
+
+                num_train_updates += 1
+
+                if num_train_updates % self.target_update_freq == 0:
+                    target.load_state_dict(Q.state_dict())
+
+                # Logs
         pass
 
     def evaluate(self, env, num_episodes, max_episode_length=None):
@@ -241,7 +308,7 @@ if __name__ == "__main__":
     preprocessor = AtariPreprocessor(84)
 
     # create replay buffer
-    replay_buffer = ReplayMemory(buffer_size, history_length)
+    replay_buffer = ReplayMemory(buffer_size, history_length, 84)
 
     # create DQN agent
     agent = DQNAgent().__init__(DQN,
@@ -254,3 +321,6 @@ if __name__ == "__main__":
                                 train_freq,
                                 batch_size,
                                 history_length)
+
+
+    agent.fit(env, num_training_samples)

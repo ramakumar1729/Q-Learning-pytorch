@@ -24,19 +24,28 @@ class HistoryPreprocessor(Preprocessor):
     """
 
     def __init__(self, history_length=1):
-        self.history_length = history_length
-
+        self.history_length=history_length
+        self.queue=[]
 
     def process_state_for_network(self, state):
         """You only want history when you're deciding the current action to take."""
-        pass
+        if len(self.queue)<self.history_length:
+            toreturn=[0]*(self.history_length-len(self.queue))+self.queue
+            self.queue=self.queue[1:]
+            self.queue.append(state)
+            return toreturn
+        else:
+            toreturn=self.queue
+            self.queue=self.queue[1:]
+            return toreturn
+
 
     def reset(self):
         """Reset the history sequence.
 
         Useful when you start a new episode.
         """
-        pass
+        self.queue=[]
 
     def get_config(self):
         return {'history_length': self.history_length}
@@ -79,7 +88,7 @@ class AtariPreprocessor(Preprocessor):
     """
 
     def __init__(self, new_size):
-        self.new_size = new_size
+        self.new_size=new_size
 
     def process_state_for_memory(self, state):
         """Scale, convert to greyscale and store as uint8.
@@ -107,7 +116,9 @@ class AtariPreprocessor(Preprocessor):
         Basically same as process state for memory, but this time
         outputs float32 images.
         """
-        return self.process_state_for_memory(state).astype(np.float) 
+        I=self.process_state_for_memory(state)
+        return I.astype(np.float)
+
 
     def process_batch(self, samples):
         """The batches from replay memory will be uint8, convert to float32.
@@ -116,7 +127,16 @@ class AtariPreprocessor(Preprocessor):
         samples from the replay memory. Meaning you need to convert
         both state and next state values.
         """
-        pass
+        samples_changed=[]
+        for s in samples:
+            prev_states, st_processed, action, reward, st1_processed, isterminal=s
+            prev_states_changed=[]
+            for state in prev_states: prev_states_changed.append(state.astype(np.float32))
+            st_processed=st_processed.astype(np.float32)
+            st1_processed=st1_processed.astype(np.float32)
+            s_changed=(prev_states_changed,st_processed,action,reward,st1_processed,isterminal)
+            samples_changed.append(s_changed)
+        return samples_changed
 
     def process_reward(self, reward):
         """Clip reward between -1 and 1."""
@@ -138,3 +158,4 @@ class PreprocessorSequence(Preprocessor):
     """
     def __init__(self, preprocessors):
         pass
+
