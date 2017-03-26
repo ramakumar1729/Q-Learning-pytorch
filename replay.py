@@ -1,8 +1,7 @@
-import numpy
+import numpy as np
 import xxhash
 from core import ReplayMemory
 from preprocessors import AtariPreprocessor,HistoryPreprocessor
-import numpy as np
 
 class ReplayMemory(ReplayMemory):
     """Interface for replay memories.
@@ -89,10 +88,19 @@ class ReplayMemory(ReplayMemory):
     def end_episode(self, final_state, is_terminal):
         self.historytracker.reset()
 
+    def phi(self,state):
+        prev_states=self.historytracker.process_state_for_network(state,False)
+        processed_states = []
+        for s in prev_states:
+            processed_states.append(self.get_state(s).astype(np.float32))
+        processed_states.append(state)
+        obs = np.stack(processed_states[:4], axis=0)
+        return obs
+
     def sample(self, batch_size, indexes=None):
-        if indexes: batch_indices = indexes
-        else: batch_indices = numpy.random.choice(self.max_size,batch_size)
-        batch = []
+        if indexes: batch_indices=indexes
+        else: batch_indices=np.random.choice(self.max_size,batch_size)
+        batch=[]
         for i in batch_indices:
             datapt = self.experience[i]
             action = datapt[2]
