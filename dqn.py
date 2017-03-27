@@ -1,4 +1,6 @@
 from __future__ import print_function
+import sys
+import time
 import gym
 import numpy as np
 
@@ -68,7 +70,8 @@ class DQNAgent:
                  train_freq,
                  batch_size,
                  history_length,
-                 nA):
+                 nA,
+                 dtype):
        
          self.q_network            =        q_network                    
          self.preprocessor         =        preprocessor                    
@@ -81,6 +84,7 @@ class DQNAgent:
          self.batch_size           =        batch_size
          self.history_length       =        history_length
          self.nA                   =        nA
+         self.dtype                =        dtype
 
 
     #def compile(self, optimizer, loss_func):
@@ -101,11 +105,12 @@ class DQNAgent:
         keras.optimizers.Optimizer class. Specifically the Adam
         optimizer.
         """
-        Q = self.q_network(self.history_length, self.nA)
-        target = self.q_network(self.history_length, self.nA)
-        target.load_state_dict(Q.state_dict())
+        dtype = self.dtype
+        Q = self.q_network(self.history_length+1, self.nA).type(dtype)
+        target_Q = self.q_network(self.history_length+1, self.nA).type(dtype)
+        target_Q.load_state_dict(Q.state_dict())
 
-        return Q, target
+        return Q, target_Q
 
 
     def select_action(self, state, **kwargs):
@@ -179,22 +184,29 @@ class DQNAgent:
         last_obs = env.reset()
         idx = 0
 
-        Q, target = self.compile()
+        Q, target_Q = self.compile()
+
+        ## test Q network
+        # obs_test = np.zeros(shape=(1,4,84,84))
+        # obs_test = self._convert_np_to_torch_variable(obs_test, dtype)
+        #vals = Q(obs_test)
+
         optimizer = torch.optim.SGD(Q.parameters(), lr=1e-4, momentum=0.9)
         criterion = torch.nn.SmoothL1Loss()
 
         num_train_updates = 0
         replay_buffer = self.memory
 
+        train_flag = False
         while idx < num_iterations:
             idx += 1
             # encoded observations of last_obs: enc_obs
             # TODO epsilon greedy
-            if idx > self.num_burn_in:
-                obs = torch.from_numpy(self.q_network).type(dtype)
-                action = Q(Variable(obs, volatile=True)).data.max(1)[1]
-            else:
-                action = torch.IntTensor([np.random.randint(0, self.nA)])
+            # if idx > self.num_burn_in:
+                # obs = torch.from_numpy(self.q_network).type(dtype)
+                # action = Q(Variable(obs, volatile=True)).data.max(1)[1]
+
+            action = np.random.randint(0, self.nA)
 
             # take a step
             obs, reward, is_terminal, _ = env.step(action)
@@ -206,14 +218,19 @@ class DQNAgent:
                 obs = env.reset()
             last_obs = obs
 
+            if not train_flag:
+                start = time.time()
             ### Train network, only if the experience buffer is already populated
             #  otherwise populate the buffer
             if idx > self.num_burn_in and idx % self.train_freq == 0:
+                train_flag = True
                 obs_batch, action_batch, reward_batch, next_obs_batch, done_batch = \
                     replay_buffer.sample(self.batch_size)
 
                 # convert np Tensors to torch variables
                 obs_batch = self._convert_np_to_torch_variable(obs_batch, dtype)
+                LONG = torch.cuda.LongTensor
+                action_batch = self._convert_np_to_torch_variable(action_batch, LONG)
                 reward_batch = self._convert_np_to_torch_variable(reward_batch, dtype)
                 next_obs_batch = self._convert_np_to_torch_variable(next_obs_batch, dtype)
                 not_done_batch = self._convert_np_to_torch_variable(1-done_batch, dtype)
@@ -221,7 +238,8 @@ class DQNAgent:
                 current_Q_values = Q(obs_batch).gather(1, action_batch.unsqueeze(1))
 
                 # compute best target network value for next state , over all actions
-                max_Q_target = target(next_obs_batch).detach().max(1)[0]
+                max_Q_target = target_Q(next_obs_batch).detach().max(1)[0]
+
                 target_Q_values = reward_batch + self.gamma *(not_done_batch * max_Q_target)
 
                 # compute loss using Q and target networks
@@ -230,13 +248,18 @@ class DQNAgent:
                 loss.backward()
                 optimizer.step()
 
+
                 num_train_updates += 1
+                curr_time = time.time()
+                avg_training_time = (curr_time-start)/num_train_updates
 
                 if num_train_updates % self.target_update_freq == 0:
-                    target.load_state_dict(Q.state_dict())
+                    target_Q.load_state_dict(Q.state_dict())
+
+                if num_train_updates % 100 == 0:
+                    print('%d: avg training time: %3.5f' %(idx, avg_training_time))
 
                 # Logs
-        pass
 
     def evaluate(self, env, num_episodes, max_episode_length=None):
         """Test your agent with a provided environment.
@@ -252,6 +275,7 @@ class DQNAgent:
         visually inspect your policy.
         """
         pass
+
 
 class DQN(nn.Module):
 
@@ -284,34 +308,35 @@ class DQN(nn.Module):
 
 
 if __name__ == "__main__":
-    env = gym.make('Space-Invaders-0')
+    env = gym.make('SpaceInvaders-v0')
     env.reset()
 
     USE_CUDA = torch.cuda.is_available()
     dtype = torch.cuda.FloatTensor if torch.cuda.is_available() else torch.FloatTensor
 
     # parameters
-    history_length = 4
+    history_length = 3
     gamma = 0.99
     learning_rate = 1e-4
     epsilon = 0.05
-    num_training_samples = 5e6
-    buffer_size = 1e6
-    target_update_freq = 1e4
+    num_training_samples = int(5e6)
+    buffer_size = int(1e6)
+    target_update_freq = int(1e4)
     batch_size = 32
-    num_burn_in = 5e5
-    train_freq = 10000
+    num_burn_in = 100 # 5e5
+    train_freq = 1 # 10000
     nA = env.action_space.n
-
 
     # create preprocessor class
     preprocessor = AtariPreprocessor(84)
+    print('created preprocessor')
 
     # create replay buffer
     replay_buffer = ReplayMemory(buffer_size, history_length, 84)
+    print('created replay buffer')
 
     # create DQN agent
-    agent = DQNAgent().__init__(DQN,
+    agent = DQNAgent(DQN,
                                 preprocessor,
                                 replay_buffer,
                                 policy.GreedyEpsilonPolicy,
@@ -320,7 +345,9 @@ if __name__ == "__main__":
                                 num_burn_in,
                                 train_freq,
                                 batch_size,
-                                history_length)
-
+                                history_length,
+                                nA,
+                                dtype)
+    print('create DQN agent')
 
     agent.fit(env, num_training_samples)

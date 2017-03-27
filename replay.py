@@ -2,6 +2,7 @@ import numpy as np
 import xxhash
 from core import ReplayMemory
 from preprocessors import AtariPreprocessor,HistoryPreprocessor
+import sys
 
 class ReplayMemory(ReplayMemory):
     """Interface for replay memories.
@@ -70,16 +71,16 @@ class ReplayMemory(ReplayMemory):
         return len(self.state_hash_table.keys())
 
     def get_state(self,state_hash):
-        if type(state_hash)==type(0): return np.zeros((self.imgsize,self.imgsize))
+        if state_hash == 0: return np.zeros((self.imgsize,self.imgsize))
         return self.state_hash_table[state_hash]
 
     def append(self, state,action,reward,next_tuple):
         if len(self.experience)>self.max_size: self.experience=self.experience[1:]
-        st_processed = self.preprocessor.process_state_for_memory(state)
+        st_processed = self.preprocessor.process_state_for_memory2(state)
         st_hash=self.hashfunc(st_processed)
         st1 = next_tuple[0]
         isterminal = next_tuple[2]
-        st1_processed = self.preprocessor.process_state_for_memory(st1)
+        st1_processed = self.preprocessor.process_state_for_memory2(st1)
         st1_hash=self.hashfunc(st1_processed)
         prev_states = self.historytracker.process_state_for_network(st_hash)
         reward = self.preprocessor.process_reward(reward)
@@ -101,8 +102,8 @@ class ReplayMemory(ReplayMemory):
 
     def sample(self, batch_size, indexes=None):
         if indexes: batch_indices=indexes
-        else: batch_indices=np.random.choice(self.max_size,batch_size)
-        batch=[]
+        else: batch_indices=np.random.choice(len(self.experience), batch_size)
+        batch =[]
         for i in batch_indices:
             datapt = self.experience[i]
             action = datapt[2]
@@ -115,7 +116,7 @@ class ReplayMemory(ReplayMemory):
                 processed_states.append(self.get_state(s).astype(np.float32))
             curstate = self.get_state(datapt[1]).astype(np.float32)
             processed_states.append(curstate)
-            next_state = self.get_state(datapt[4]).asptype(np.float32)
+            next_state = self.get_state(datapt[4]).astype(np.float32)
             processed_states.append(next_state)
 
             obs = np.stack(processed_states[:4], axis=0)
