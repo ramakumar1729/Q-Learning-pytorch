@@ -87,17 +87,21 @@ class ReplayMemory(ReplayMemory):
         et = (prev_states, st_hash, action, reward, st1_hash, isterminal)
         self.experience.append(et)
         if isterminal: self.end_episode(st1,isterminal)
+        return st_hash, st1_hash
 
     def end_episode(self, final_state, is_terminal):
         self.historytracker.reset()
 
-    def phi(self,state):
-        prev_states=self.historytracker.process_state_for_network(state,False)
+    def phi(self,state_hash):
+        prev_states = self.historytracker.process_state_for_network(state_hash, False)
         processed_states = []
         for s in prev_states:
             processed_states.append(self.get_state(s).astype(np.float32))
-        processed_states.append(state)
+
+        processed_states.append(self.get_state(state_hash).astype(np.float32))
+
         obs = np.stack(processed_states, axis=0)
+        obs = np.stack([obs])
         return obs
 
     def sample(self, batch_size, indexes=None):

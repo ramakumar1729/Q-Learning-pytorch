@@ -71,7 +71,8 @@ class DQNAgent:
                  batch_size,
                  history_length,
                  nA,
-                 dtype):
+                 dtype,
+                 epsilon):
        
          self.q_network            =        q_network                    
          self.preprocessor         =        preprocessor                    
@@ -85,6 +86,7 @@ class DQNAgent:
          self.history_length       =        history_length
          self.nA                   =        nA
          self.dtype                =        dtype
+         self.epsilon              =        epsilon
 
 
     #def compile(self, optimizer, loss_func):
@@ -198,24 +200,36 @@ class DQNAgent:
         replay_buffer = self.memory
 
         train_flag = False
+        start_processed = self.preprocessor.process_state_for_memory2(last_obs)
+        start_hash = self.memory.hashfunc(start_processed)
+        state_hash = start_hash
+
         while idx < num_iterations:
             idx += 1
             # encoded observations of last_obs: enc_obs
-            # TODO epsilon greedy
-            # if idx > self.num_burn_in:
-                # obs = torch.from_numpy(self.q_network).type(dtype)
-                # action = Q(Variable(obs, volatile=True)).data.max(1)[1]
+            if idx > self.num_burn_in:
+                sample = np.random.sample()
+                if sample > self.epsilon:
+                    Q_input = self.memory.phi(state_hash)
 
-            action = np.random.randint(0, self.nA)
+                    action = Q(Variable(torch.from_numpy(Q_input).type(dtype), volatile=True)).data.max(1)[1]
+                    action = action[0,0]
+                else:
+                    action = np.random.randint(0, self.nA)
+            else:
+                action = np.random.randint(0, self.nA)
 
             # take a step
             obs, reward, is_terminal, _ = env.step(action)
 
             # store info in replay buffer
-            replay_buffer.append(last_obs, action, reward, (obs, reward, is_terminal, _))
+            st1_hash, st2_hash = replay_buffer.append(last_obs, action, reward, (obs, reward, is_terminal, _))
 
             if is_terminal:
                 obs = env.reset()
+                state_hash = start_hash
+            else:
+                state_hash = st2_hash
             last_obs = obs
 
             if not train_flag:
@@ -242,6 +256,9 @@ class DQNAgent:
 
                 target_Q_values = reward_batch + self.gamma *(not_done_batch * max_Q_target)
 
+                # set gradient to zero before backprop
+                optimizer.zero_grad()
+
                 # compute loss using Q and target networks
                 loss = criterion(current_Q_values, target_Q_values)
 
@@ -260,6 +277,8 @@ class DQNAgent:
                     print('%d: avg training time: %3.5f' %(idx, avg_training_time))
 
                 # Logs
+
+
 
     def evaluate(self, env, num_episodes, max_episode_length=None):
         """Test your agent with a provided environment.
@@ -347,7 +366,8 @@ if __name__ == "__main__":
                                 batch_size,
                                 history_length,
                                 nA,
-                                dtype)
+                                dtype,
+                                epsilon)
     print('create DQN agent')
 
     agent.fit(env, num_training_samples)
