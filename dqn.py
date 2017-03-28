@@ -2,7 +2,9 @@ from __future__ import print_function
 import sys
 import time
 import gym
+from gym import wrappers
 import numpy as np
+import pickle
 
 import torch
 import torch.nn as nn
@@ -72,7 +74,8 @@ class DQNAgent:
                  history_length,
                  nA,
                  dtype,
-                 epsilon):
+                 epsilon,
+                 model_name):
        
          self.q_network            =        q_network                    
          self.preprocessor         =        preprocessor                    
@@ -87,6 +90,7 @@ class DQNAgent:
          self.nA                   =        nA
          self.dtype                =        dtype
          self.epsilon              =        epsilon
+         self.model_name           =        model_name
 
 
     #def compile(self, optimizer, loss_func):
@@ -185,6 +189,12 @@ class DQNAgent:
         """
         last_obs = env.reset()
         idx = 0
+        stats = {
+           # 'loss': [],
+            'reward_per_iter': [],
+            'reward_per_episode': [],
+        }
+        episodic_accum = 0
 
         Q, target_Q = self.compile()
 
@@ -193,7 +203,7 @@ class DQNAgent:
         # obs_test = self._convert_np_to_torch_variable(obs_test, dtype)
         #vals = Q(obs_test)
 
-        optimizer = torch.optim.SGD(Q.parameters(), lr=1e-4, momentum=0.9)
+        optimizer = torch.optim.RMSprop(Q.parameters(), lr=0.0003, eps=1e-2, alpha=0.95)
         criterion = torch.nn.SmoothL1Loss()
 
         num_train_updates = 0
@@ -234,6 +244,30 @@ class DQNAgent:
 
             if not train_flag:
                 start = time.time()
+                if idx % 10000 == 0:
+                    print('iter: %d' %idx)
+            # update stats
+            #stats['loss'].append(loss.data.numpy())
+            #print(type(loss.data))
+            stats['reward_per_iter'].append(reward)
+            episodic_accum += reward
+
+            if is_terminal:
+                stats['reward_per_episode'].append(episodic_accum)
+                episodic_accum = 0
+
+            # print stats, periodically
+            if idx % 1000 == 0:
+                print(str(idx)+': avg_time: '+ str(avg_training_time) +', '+', '.join(['%s: %3.5f' %(key, np.mean(stats[key][-20:])) for key in stats.keys()]))
+
+            # save train stats and model, periodically
+            if idx % 40000 == 4:
+                torch.save(Q.state_dict(), 'models/'+self.model_name+'.Q.model')
+                torch.save(target_Q.state_dict(), 'models/'+self.model_name+'.targetQ.model')
+                with open('models/DQN.stats.pkl','wb') as fw:
+                    pickle.dump(stats, fw)
+                print('model, stats saved')
+
             ### Train network, only if the experience buffer is already populated
             #  otherwise populate the buffer
             if idx > self.num_burn_in and idx % self.train_freq == 0:
@@ -265,7 +299,6 @@ class DQNAgent:
                 loss.backward()
                 optimizer.step()
 
-
                 num_train_updates += 1
                 curr_time = time.time()
                 avg_training_time = (curr_time-start)/num_train_updates
@@ -273,10 +306,8 @@ class DQNAgent:
                 if num_train_updates % self.target_update_freq == 0:
                     target_Q.load_state_dict(Q.state_dict())
 
-                if num_train_updates % 100 == 0:
-                    print('%d: avg training time: %3.5f' %(idx, avg_training_time))
-
-                # Logs
+                    #if num_train_updates % 1000 == 0:
+                    #    print('%d: avg training time: %3.5f' %(idx, avg_training_time))
 
 
 
@@ -327,11 +358,13 @@ class DQN(nn.Module):
 
 
 if __name__ == "__main__":
+    model_name = sys.argv[1]
+
     env = gym.make('SpaceInvaders-v0')
     env.reset()
 
     USE_CUDA = torch.cuda.is_available()
-    dtype = torch.cuda.FloatTensor if torch.cuda.is_available() else torch.FloatTensor
+    dtype = torch.cuda.FloatTensor if USE_CUDA else torch.FloatTensor
 
     # parameters
     history_length = 3
@@ -342,8 +375,8 @@ if __name__ == "__main__":
     buffer_size = int(1e6)
     target_update_freq = int(1e4)
     batch_size = 32
-    num_burn_in = 100 # 5e5
-    train_freq = 1 # 10000
+    num_burn_in = 100 #int(5e4)
+    train_freq = 1
     nA = env.action_space.n
 
     # create preprocessor class
@@ -367,7 +400,8 @@ if __name__ == "__main__":
                                 history_length,
                                 nA,
                                 dtype,
-                                epsilon)
+                                epsilon,
+                                model_name)
     print('create DQN agent')
 
     agent.fit(env, num_training_samples)
