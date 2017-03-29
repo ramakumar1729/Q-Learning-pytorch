@@ -268,10 +268,10 @@ class DDQNAgent:
                 print(str(idx)+': avg_time: '+ str(avg_training_time) +', '+', '.join(['%s: %3.5f' %(key, np.mean(stats[key][-20:])) for key in stats.keys()]))
 
             # save train stats and model, periodically
-            if idx % 1000 == 0 and idx > self.num_burn_in:
-                torch.save(Q.state_dict(), 'models/'+self.model_name+'.DDQN.Q.model')
-                torch.save(target_Q.state_dict(), 'models/'+self.model_name+'.DDQN.targetQ.model')
-                with open('models/'+self.model_name+'.DDQN.stats.pkl','wb') as fw:
+            if idx % 10000 == 0 and idx > self.num_burn_in:
+                torch.save(Q.state_dict(), 'models/'+self.model_name+'.DDQN.Q.model.'+str(idx))
+                torch.save(target_Q.state_dict(), 'models/'+self.model_name+'.DDQN.targetQ.model.'+str(idx))
+                with open('models/'+self.model_name+'.DDQN.stats.pkl.'+str(idx),'wb') as fw:
                     pickle.dump(stats, fw)
                 print('model, stats saved')
 
@@ -434,7 +434,7 @@ if __name__ == "__main__":
     buffer_size = int(1e6)
     target_update_freq = int(1e4)
     batch_size = 32
-    num_burn_in = 100 # int(5e4)
+    num_burn_in = int(5e4)
     train_freq = 1
     nA = env.action_space.n
 
