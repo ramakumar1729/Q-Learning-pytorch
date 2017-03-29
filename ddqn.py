@@ -20,13 +20,14 @@ import policy
 
 from replay import ReplayMemory
 
-"""Main DQN agent."""
+"""Main DDQN agent."""
 
-class DQNAgent:
-    """Class implementing DQN.
+
+class DDQNAgent:
+    """Class implementing DDQN.
 
     This is a basic outline of the functions/parameters you will need
-    in order to implement the DQNAgnet. This is just to get you
+    in order to implement the DDQNAgnet. This is just to get you
     started. You may need to tweak the parameters, add new ones, etc.
 
     Feel free to change the functions and function parameters that the
@@ -165,8 +166,8 @@ class DQNAgent:
         """
         pass
 
-    def _convert_np_to_torch_variable(self, x, dtype):
-        return Variable(torch.from_numpy(x).type(dtype))
+    def _convert_np_to_torch_variable(self, x, dtype, volatile=False):
+        return Variable(torch.from_numpy(x).type(dtype), volatile=volatile)
 
     def fit(self, env, num_iterations, max_episode_length=None):
         """Fit your model to the provided environment.
@@ -268,9 +269,9 @@ class DQNAgent:
 
             # save train stats and model, periodically
             if idx % 1000 == 0 and idx > self.num_burn_in:
-                torch.save(Q.state_dict(), 'models/'+self.model_name+'.Q.model')
-                torch.save(target_Q.state_dict(), 'models/'+self.model_name+'.targetQ.model')
-                with open('models/DQN.stats.pkl','wb') as fw:
+                torch.save(Q.state_dict(), 'models/'+self.model_name+'.DDQN.Q.model')
+                torch.save(target_Q.state_dict(), 'models/'+self.model_name+'.DDQN.targetQ.model')
+                with open('models/'+self.model_name+'.DDQN.stats.pkl','wb') as fw:
                     pickle.dump(stats, fw)
                 print('model, stats saved')
 
@@ -286,14 +287,21 @@ class DQNAgent:
                 LONG = torch.cuda.LongTensor
                 action_batch = self._convert_np_to_torch_variable(action_batch, LONG)
                 reward_batch = self._convert_np_to_torch_variable(reward_batch, dtype)
+                # next_obs_batch_volatile = self._convert_np_to_torch_variable(next_obs_batch, dtype, volatile=True)/255.0
                 next_obs_batch = self._convert_np_to_torch_variable(next_obs_batch, dtype)/255.0
                 not_done_batch = self._convert_np_to_torch_variable(1-done_batch, dtype)
 
-                current_Q_values = Q(obs_batch).gather(1, action_batch.unsqueeze(1))
+                current_Q_values = Q(obs_batch)
+                current_Q_values = current_Q_values.gather(1, action_batch.unsqueeze(1))
 
-                # compute best target network value for next state , over all actions
-                max_Q_target = target_Q(next_obs_batch).detach().max(1)[0]
+                ## DQN: compute best target network value for next state , over all actions
+                # max_Q_target = target_Q(next_obs_batch).detach().max(1)[0]
 
+                # DDQN: first compute best action, using Q_o, then compute target Q values using Q_t
+                Q_vals = Q(next_obs_batch).detach()
+                optimal_action_batch = Q_vals.max(1)[1]
+                max_Q_target = target_Q(next_obs_batch).detach()
+                max_Q_target = max_Q_target.gather(1, optimal_action_batch)
                 target_Q_values = reward_batch + self.gamma *(not_done_batch * max_Q_target)
 
                 # set gradient to zero before backprop
@@ -373,10 +381,10 @@ class DQNAgent:
         return stats
 
 
-class DQN(nn.Module):
+class DDQN(nn.Module):
 
     def __init__(self, window=4, nA=18):
-        super(DQN, self).__init__()
+        super(DDQN, self).__init__()
         self.conv1 = nn.Conv2d(window, 32, 8, stride=4)
         self.conv2 = nn.Conv2d(32, 64, 4, stride=2)
         self.conv3 = nn.Conv2d(64, 64, 3, stride=1)
@@ -426,7 +434,7 @@ if __name__ == "__main__":
     buffer_size = int(1e6)
     target_update_freq = int(1e4)
     batch_size = 32
-    num_burn_in = int(5e4)
+    num_burn_in = 100 # int(5e4)
     train_freq = 1
     nA = env.action_space.n
 
@@ -438,8 +446,8 @@ if __name__ == "__main__":
     replay_buffer = ReplayMemory(buffer_size, history_length, 84)
     print('created replay buffer')
 
-    # create DQN agent
-    agent = DQNAgent(DQN,
+    # create DDQN agent
+    agent = DDQNAgent(DDQN,
                                 preprocessor,
                                 replay_buffer,
                                 policy.GreedyEpsilonPolicy,
@@ -453,13 +461,13 @@ if __name__ == "__main__":
                                 dtype,
                                 epsilon,
                                 model_name)
-    print('create DQN agent')
+    print('create DDQN agent')
 
     if mode == 'train':
-        env = wrappers.Monitor(env, '/tmp/SpaceInvaders-DQN-expt-train.'+model_name, force=True)
+        env = wrappers.Monitor(env, '/tmp/SpaceInvaders-DDQN-expt-train.'+model_name, force=True)
         agent.fit(env, num_training_samples)
     elif mode == 'eval':
-        env = wrappers.Monitor(env, '/tmp/SpaceInvaders-DQN-expt-eval.'+model_name, force=True)
+        env = wrappers.Monitor(env, '/tmp/SpaceInvaders-DDQN-expt-eval.'+model_name, force=True)
         num_episodes = int(float(sys.argv[3]))
         dict_paths = [sys.argv[4], sys.argv[5]]
         agent.evaluate(env, num_episodes , dict_paths=dict_paths)
