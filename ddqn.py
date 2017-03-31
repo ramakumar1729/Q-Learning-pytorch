@@ -269,9 +269,9 @@ class DDQNAgent:
 
             # save train stats and model, periodically
             if idx % 10000 == 0 and idx > self.num_burn_in:
-                torch.save(Q.state_dict(), 'models/'+self.model_name+'.DDQN.Q.model.'+str(idx))
-                torch.save(target_Q.state_dict(), 'models/'+self.model_name+'.DDQN.targetQ.model.'+str(idx))
-                with open('models/'+self.model_name+'.DDQN.stats.pkl.'+str(idx),'wb') as fw:
+                torch.save(Q.state_dict(), 'models/DDQN/'+self.model_name+'.Q.model.'+str(idx))
+                torch.save(target_Q.state_dict(), 'models/DDQN/'+self.model_name+'.targetQ.model.'+str(idx))
+                with open('models/DDQN/'+'stats.pkl.'+str(idx),'wb') as fw:
                     pickle.dump(stats, fw)
                 print('model, stats saved')
 

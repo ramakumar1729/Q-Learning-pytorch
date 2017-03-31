@@ -20,13 +20,13 @@ import policy
 
 from replay import ReplayMemory
 
-"""Main DQN agent."""
+"""Main LQN agent."""
 
-class DQNAgent:
-    """Class implementing DQN.
+class LQNAgent:
+    """Class implementing LQN.
 
     This is a basic outline of the functions/parameters you will need
-    in order to implement the DQNAgnet. This is just to get you
+    in order to implement the LQNAgnet. This is just to get you
     started. You may need to tweak the parameters, add new ones, etc.
 
     Feel free to change the functions and function parameters that the
@@ -115,6 +115,15 @@ class DQNAgent:
         Q = self.q_network(self.history_length+1, self.nA).type(dtype)
         target_Q = self.q_network(self.history_length+1, self.nA).type(dtype)
         target_Q.load_state_dict(Q.state_dict())
+
+        # test
+        x = torch.from_numpy(np.ones(shape=(6,(self.history_length+1), 84, 84))).type(self.dtype)
+        x = Variable(x, volatile=True)
+        x = x.view(x.size(0), -1)
+        print(x)
+        vals = Q(x)
+        print('test worked')
+
 
         # load model is dict_paths is not None
         if dict_paths is not None:
@@ -267,10 +276,10 @@ class DQNAgent:
                 print(str(idx)+': avg_time: '+ str(avg_training_time) +', '+', '.join(['%s: %3.5f' %(key, np.mean(stats[key][-20:])) for key in stats.keys()]))
 
             # save train stats and model, periodically
-            if idx % 1000 == 0 and idx > self.num_burn_in:
-                torch.save(Q.state_dict(), 'models/DQN/'+self.model_name+'.Q.model.'+str(idx))
-                torch.save(target_Q.state_dict(), 'models/DQN/'+self.model_name+'.targetQ.model.'+str(idx))
-                with open('models/DQN/stats.pkl.'+str(idx),'wb') as fw:
+            if idx % 10000 == 0 and idx > self.num_burn_in:
+                torch.save(Q.state_dict(), 'models/LQN/'+self.model_name+'.Q.model.'+str(idx))
+                torch.save(target_Q.state_dict(), 'models/LQN/'+self.model_name+'.targetQ.model.'+str(idx))
+                with open('models/LQN/stats.pkl.'+str(idx),'wb') as fw:
                     pickle.dump(stats, fw)
                 print('model, stats saved')
 
@@ -373,33 +382,22 @@ class DQNAgent:
         return stats
 
 
-class DQN(nn.Module):
+class LQN(nn.Module):
 
     def __init__(self, window=4, nA=18):
-        super(DQN, self).__init__()
-        self.conv1 = nn.Conv2d(window, 32, 8, stride=4)
-        self.conv2 = nn.Conv2d(32, 64, 4, stride=2)
-        self.conv3 = nn.Conv2d(64, 64, 3, stride=1)
-        self.fc1 = nn.Linear(7*7*64, 512) 
-        self.fc2 = nn.Linear(512, nA)
+        super(LQN, self).__init__()
+        self.fc1 = nn.Linear(84*84*window, nA)
 
     def init_weights(self):
-        self.conv1.weight.data.uniform_(-0.1, 0.1)
-        self.conv2.weight.data.uniform_(-0.1, 0.1)
-        self.conv3.weight.data.uniform_(-0.1, 0.1)
         self.fc1.weight.data.uniform_(-0.1, 0.1)
-        self.fc2.weight.data.uniform_(-0.1, 0.1)
-    
+
     def forward(self, x):
-        out = self.conv1(x)
-        out = F.relu(out)
-        out = self.conv2(out)
-        out = F.relu(out)
-        out = self.conv3(out)
-        out = out.view(out.size(0),-1)
+        """
+
+        :type x: Variable
+        """
+        out = x.view(x.size(0), -1)
         out = self.fc1(out)
-        out = F.relu(out)
-        out = self.fc2(out)
         return out
 
 
@@ -438,8 +436,8 @@ if __name__ == "__main__":
     replay_buffer = ReplayMemory(buffer_size, history_length, 84)
     print('created replay buffer')
 
-    # create DQN agent
-    agent = DQNAgent(DQN,
+    # create LQN agent
+    agent = LQNAgent(LQN,
                                 preprocessor,
                                 replay_buffer,
                                 policy.GreedyEpsilonPolicy,
@@ -453,13 +451,13 @@ if __name__ == "__main__":
                                 dtype,
                                 epsilon,
                                 model_name)
-    print('create DQN agent')
+    print('create LQN agent')
 
     if mode == 'train':
-        env = wrappers.Monitor(env, '/tmp/SpaceInvaders-DQN-expt-train.'+model_name, force=True)
+        env = wrappers.Monitor(env, '/tmp/SpaceInvaders-LQN-expt-train.'+model_name, force=True)
         agent.fit(env, num_training_samples)
     elif mode == 'eval':
-        env = wrappers.Monitor(env, '/tmp/SpaceInvaders-DQN-expt-eval.'+model_name, force=True)
+        env = wrappers.Monitor(env, '/tmp/SpaceInvaders-LQN-expt-eval.'+model_name, force=True)
         num_episodes = int(float(sys.argv[3]))
         dict_paths = [sys.argv[4], sys.argv[5]]
         agent.evaluate(env, num_episodes , dict_paths=dict_paths)
